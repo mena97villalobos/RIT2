@@ -8,17 +8,28 @@ import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTreeCell;
+import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.es.SpanishAnalyzer;
 import org.apache.lucene.document.Document;
-import org.apache.lucene.queryParser.ParseException;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.FSDirectory;
+import org.jsoup.Jsoup;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Paths;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.ResourceBundle;
-import java.util.regex.Pattern;
 
 public class ControllerMain implements Initializable{
     @FXML
@@ -40,10 +51,8 @@ public class ControllerMain implements Initializable{
 
     private ArrayList<String> checkedItems = new ArrayList<>();
     private String consulta = "";
-    public Indexer indexer = new Indexer("Salida", true);
     public Searcher searcher;
-    private Pattern caso3 = Pattern.compile("(ref:.+|.) AND (ref:.+|.)");
-    private Pattern caso6 = Pattern.compile("\\d\\.\\d");
+    public boolean create = true;
 
     public ControllerMain() throws IOException { }
 
@@ -54,13 +63,6 @@ public class ControllerMain implements Initializable{
         consultar.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-                if(indexer != null) {
-                    try {
-                        indexer.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
                 Resultados.clear();
                 consulta = consultaText.getText();
                 if(consulta.equals("")){
@@ -96,29 +98,36 @@ public class ControllerMain implements Initializable{
                 Task task = new Task() {
                     @Override
                     protected Void call() throws Exception {
-                        int numIndexed = 0;
+                        int numIndexed;
                         long startTime = System.currentTimeMillis();
                         this.updateMessage("Indexando...");
-                        String aux = "";
+                        String aux;
                         checkedItems.clear();
                         findCheckedItems((CheckBoxTreeItem<?>) treeView.getRoot(), checkedItems);
-                        try {
-                            if(indexer == null){
-                                indexer = new Indexer("Salida", false);
-                            }
-                            for (String s : checkedItems) {
-                                this.updateMessage("Indexando: "+s);
-                                numIndexed = indexer.createIndex(s, new TextFileFilter());
-                            }
-                            indexer.close();
-                            indexer = null;
-                        } catch (IOException e) {
-                            e.printStackTrace();
+                        if(checkedItems.isEmpty()){
+                            this.updateMessage("Seleccione archivos para indexar!!!");
                         }
-                        long endTime = System.currentTimeMillis();
-                        aux = numIndexed+" Archivos indexados, duración: " +(endTime-startTime)+" ms";
-                        this.updateMessage(aux);
-                        this.updateMessage(this.workDoneProperty().toString());
+                        else {
+                            Directory indexDirectory = FSDirectory.open(Paths.get("Salida"));
+                            Analyzer spanishAnalyzer = new SpanishAnalyzer();
+                            IndexWriterConfig config = new IndexWriterConfig(spanishAnalyzer);
+                            if (create)
+                                config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+                            else
+                                config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+                            IndexWriter writer = new IndexWriter(indexDirectory, config);
+                            for (String s : checkedItems) {
+                                this.updateMessage("Indexando: " + s);
+                                indexFile(new File(s), writer, new TextFileFilter());
+                            }
+                            numIndexed = writer.numDocs();
+                            writer.close();
+                            long endTime = System.currentTimeMillis();
+                            aux = numIndexed + " Archivos indexados, duración: " + (endTime - startTime) + " ms";
+                            this.updateMessage(aux);
+                            this.updateMessage(this.workDoneProperty().toString());
+                            create = false;
+                        }
                         return null;
                     }
                 };
@@ -168,14 +177,12 @@ public class ControllerMain implements Initializable{
     }
 
     private String search(String searchQuery, String indexDir) throws IOException, ParseException {
-        String similitud = "";
-        String nombre = "";
+        String similitud;
+        String nombre;
         String result = "";
         int cont = 1;
-        searcher = new Searcher(indexDir);
-        long startTime = System.currentTimeMillis();
+        searcher = new Searcher();
         TopDocs hits = searcher.search(searchQuery);
-        long endTime = System.currentTimeMillis();
         for(ScoreDoc scoreDoc : hits.scoreDocs) {
             Document doc = searcher.getDocument(scoreDoc);
             similitud = Float.toString(scoreDoc.score);
@@ -184,7 +191,45 @@ public class ControllerMain implements Initializable{
             cont++;
         }
         result += "-----------------------------------------------------------------------\n";
-        result += Integer.toString(hits.totalHits) + " documentos encontrados.";
+        result += Float.toString(hits.totalHits) + " documentos encontrados.";
         return result;
+    }
+
+    private void indexFile(File file, IndexWriter writer, TextFileFilter filter) throws IOException {
+        if(!file.isDirectory() && !file.isHidden() && file.exists() && file.canRead() && filter.accept(file)) {
+            org.jsoup.nodes.Document doc = Jsoup.parse(file, "UTF-8");
+            String fieldRef = normalizar(doc.select("a[href]").text()
+                    .replaceAll("\\s+", " ")
+                    .replaceAll("[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]+", ""));
+            String fieldPar = doc.select("p").text()
+                    .replaceAll("\\s+", " ")
+                    .replaceAll("[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]+", "");
+            fieldRef = normalizar(fieldRef);
+            fieldPar = normalizar(fieldPar);
+            Document document = new Document();
+            org.apache.lucene.document.TextField refField = new org.apache.lucene.document.TextField(LuceneConstants.REF, fieldRef, Field.Store.YES);
+            org.apache.lucene.document.TextField parField = new org.apache.lucene.document.TextField(LuceneConstants.PAR, fieldPar, Field.Store.YES);
+            StringField fileNameField = new StringField(LuceneConstants.FILE_NAME, file.getName(), Field.Store.YES);
+            StringField filePathField = new StringField(LuceneConstants.FILE_PATH, file.getCanonicalPath(), Field.Store.YES);
+            document.add(refField);
+            document.add(parField);
+            document.add(fileNameField);
+            document.add(filePathField);
+            if (writer.getConfig().getOpenMode() == IndexWriterConfig.OpenMode.CREATE) {
+                writer.addDocument(document);
+            } else {
+                writer.updateDocument(new Term("name", file.getName()), document);
+            }
+        }
+    }
+
+    public String normalizar(String string)
+    {
+        string = string.toLowerCase();
+        string = string.replace('ñ', '\001');
+        string = Normalizer.normalize(string, Normalizer.Form.NFD);
+        string = string.replaceAll("[\\p{InCombiningDiacriticalMarks}]", "");
+        string = string.replace('\001', 'ñ');
+        return string;
     }
 }

@@ -6,8 +6,6 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 
-import java.io.IOException;
-
 public class Main extends Application {
 
     @Override
@@ -20,15 +18,6 @@ public class Main extends Application {
             primaryStage.setResizable(false);
             primaryStage.show();
             ControllerMain c = loader.getController();
-            primaryStage.setOnCloseRequest(event -> {
-                if(c.indexer != null){
-                    try {
-                        c.indexer.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            });
         } catch (Exception e) {
             e.printStackTrace();
         }
