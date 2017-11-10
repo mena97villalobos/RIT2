@@ -20,6 +20,7 @@ public class Main extends Application {
             ControllerMain c = loader.getController();
         } catch (Exception e) {
             e.printStackTrace();
+
         }
     }
 

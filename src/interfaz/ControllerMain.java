@@ -13,9 +13,7 @@ import org.apache.lucene.analysis.es.SpanishAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.Term;
+import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
@@ -29,10 +27,7 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.Normalizer;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.ResourceBundle;
-import java.util.Set;
+import java.util.*;
 
 public class ControllerMain implements Initializable{
     @FXML
@@ -55,85 +50,90 @@ public class ControllerMain implements Initializable{
     private ArrayList<String> checkedItems = new ArrayList<>();
     private String consulta = "";
     public Searcher searcher;
-    public boolean create = true;
     public Set<String> stopWords;
 
     public ControllerMain() throws IOException {
+        File dir = new File("C:\\Salida");
+        if(!dir.exists()){
+            new File("C:\\Salida").mkdir();
+        }
+        dir = new File("C:\\Salida");
+        for (File file: dir.listFiles()) if (!file.isDirectory()) file.delete();
         stopWords = new HashSet<String>(Files.readAllLines(Paths.get("stopWords.txt")));
     }
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        File dir = new File("Salida");
-        for (File file: dir.listFiles()) if (!file.isDirectory()) file.delete();
-        consultar.setOnAction(new EventHandler<ActionEvent>() {
-            @Override
-            public void handle(ActionEvent event) {
-                Resultados.clear();
-                consulta = consultaText.getText();
-                if(consulta.equals("")){
-                    Resultados.setText("Consulta nula!!!!!");
-                }
-                else {
-                    String result = "";
-                    try {
-                        result = search(consulta, "Salida");
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } catch (ParseException e) {
-                        e.printStackTrace();
-                    }
+        pathField.setText("Geografia");
+        consultar.setOnAction(event -> {
+            Resultados.clear();
+            consulta = normalizar(consultaText.getText());
+            if(consulta.equals("")){
+                Resultados.setText("Consulta nula!!!!!");
+            }
+            else {
+                String result = "";
+                try {
+                    result = search(consulta, "C:\\Salida");
                     Resultados.setText(result);
+                }
+                catch (IndexNotFoundException e){
+                    Resultados.setText("Indice no existe!!");
+                }
+                catch (IOException e) {
+                    e.printStackTrace();
+                }
+                catch (ParseException e) {
+                    e.printStackTrace();
                 }
             }
         });
-        loadPath.setOnAction(new EventHandler<ActionEvent>() {
-            @Override
-            public void handle(ActionEvent event) {
-                if(!pathField.getText().isEmpty()) {
-                    label.setText("");
-                    displayTreeView(pathField.getText());
-                }
-                else
-                    label.setText("Ingrese un path para cargar!!!");
+        loadPath.setOnAction(event -> {
+            if(!pathField.getText().isEmpty()) {
+                label.setText("");
+                displayTreeView(pathField.getText());
             }
+            else
+                label.setText("Ingrese un path para cargar!!!");
         });
         indexar.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
+                indexar.setDisable(true);
+                consultar.setDisable(true);
                 Task task = new Task() {
                     @Override
                     protected Void call() throws Exception {
-                        int numIndexed;
+                        int numIndexed = 0;
                         long startTime = System.currentTimeMillis();
                         this.updateMessage("Indexando...");
                         String aux;
                         checkedItems.clear();
                         findCheckedItems((CheckBoxTreeItem<?>) treeView.getRoot(), checkedItems);
+                        limpiarTreeView((CheckBoxTreeItem<?>) treeView.getRoot());
                         if(checkedItems.isEmpty()){
                             this.updateMessage("Seleccione archivos para indexar!!!");
+                            indexar.setDisable(false);
+                            consultar.setDisable(false);
                         }
                         else {
-                            Directory indexDirectory = FSDirectory.open(Paths.get("Salida"));
-
+                            Directory indexDirectory = FSDirectory.open(Paths.get("C:\\Salida"));
                             SpanishAnalyzer spanishAnalyzer = new SpanishAnalyzer(CharArraySet.copy(stopWords));
                             IndexWriterConfig config = new IndexWriterConfig(spanishAnalyzer);
-                            if (create)
-                                config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
-                            else
-                                config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+                            config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
                             IndexWriter writer = new IndexWriter(indexDirectory, config);
                             for (String s : checkedItems) {
+                                File f = new File(s);
                                 this.updateMessage("Indexando: " + s);
-                                indexFile(new File(s), writer, new TextFileFilter());
+                                indexFile(f, writer, new TextFileFilter());
+                                numIndexed += 1;
                             }
-                            numIndexed = writer.numDocs();
                             writer.close();
                             long endTime = System.currentTimeMillis();
                             aux = numIndexed + " Archivos indexados, duración: " + (endTime - startTime) + " ms";
+                            indexar.setDisable(false);
+                            consultar.setDisable(false);
                             this.updateMessage(aux);
-                            this.updateMessage(this.workDoneProperty().toString());
-                            create = false;
                         }
                         return null;
                     }
@@ -143,7 +143,14 @@ public class ControllerMain implements Initializable{
                 t.start();
             }
         });
-        displayTreeView("Geografia");
+    }
+
+    private void limpiarTreeView(CheckBoxTreeItem<?> item){
+        if(item.isSelected())
+            item.setSelected(false);
+        for (TreeItem<?> child : item.getChildren()) {
+            limpiarTreeView((CheckBoxTreeItem<?>) child);
+        }
     }
 
     private void findCheckedItems(CheckBoxTreeItem<?> item, ArrayList<String> checkedItems) {
@@ -222,11 +229,8 @@ public class ControllerMain implements Initializable{
             document.add(parField);
             document.add(fileNameField);
             document.add(filePathField);
-            if (writer.getConfig().getOpenMode() == IndexWriterConfig.OpenMode.CREATE) {
-                writer.addDocument(document);
-            } else {
-                writer.updateDocument(new Term("name", file.getName()), document);
-            }
+            Term key = new Term(LuceneConstants.FILE_NAME, file.getName());
+            writer.updateDocument(key, document);
         }
     }
 

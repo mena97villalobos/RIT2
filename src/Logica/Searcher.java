@@ -1,8 +1,12 @@
 package Logica;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
 
+import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.es.SpanishAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.CorruptIndexException;
@@ -11,10 +15,7 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
@@ -23,10 +24,12 @@ public class Searcher {
     IndexSearcher indexSearcher;
     QueryParser queryParser;
     Query query;
+    public Set<String> stopWords;
 
     public Searcher() throws IOException {
-        IndexReader reader = DirectoryReader.open(FSDirectory.open(Paths.get("Salida")));
-        SpanishAnalyzer s = new SpanishAnalyzer();
+        stopWords = new HashSet<String>(Files.readAllLines(Paths.get("stopWords.txt")));
+        IndexReader reader = DirectoryReader.open(FSDirectory.open(Paths.get("C:\\Salida")));
+        SpanishAnalyzer s = new SpanishAnalyzer(CharArraySet.copy(stopWords));
         indexSearcher = new IndexSearcher(reader);
         queryParser = new QueryParser(LuceneConstants.PAR, s);
     }
