@@ -8,7 +8,7 @@ import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTreeCell;
-import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.es.SpanishAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -26,10 +26,13 @@ import org.jsoup.Jsoup;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.ResourceBundle;
+import java.util.Set;
 
 public class ControllerMain implements Initializable{
     @FXML
@@ -53,8 +56,11 @@ public class ControllerMain implements Initializable{
     private String consulta = "";
     public Searcher searcher;
     public boolean create = true;
+    public Set<String> stopWords;
 
-    public ControllerMain() throws IOException { }
+    public ControllerMain() throws IOException {
+        stopWords = new HashSet<String>(Files.readAllLines(Paths.get("stopWords.txt")));
+    }
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -109,7 +115,8 @@ public class ControllerMain implements Initializable{
                         }
                         else {
                             Directory indexDirectory = FSDirectory.open(Paths.get("Salida"));
-                            Analyzer spanishAnalyzer = new SpanishAnalyzer();
+
+                            SpanishAnalyzer spanishAnalyzer = new SpanishAnalyzer(CharArraySet.copy(stopWords));
                             IndexWriterConfig config = new IndexWriterConfig(spanishAnalyzer);
                             if (create)
                                 config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);

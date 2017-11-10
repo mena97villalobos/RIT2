@@ -8,8 +8,8 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="jsoup-1.10.3" level="project" />
-    <orderEntry type="library" name="lucene-analyzers-common-7.0.1" level="project" />
     <orderEntry type="library" name="lucene-core-7.0.1" level="project" />
     <orderEntry type="library" name="lucene-queryparser-7.0.1" level="project" />
+    <orderEntry type="library" name="lucene-analyzers-common-7.0.1" level="project" />
   </component>
 </module>
